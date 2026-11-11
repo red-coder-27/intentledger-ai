@@ -1,0 +1,216 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mandates  IntentMandate[]
+}
+
+model Merchant {
+  id               String   @id @default(uuid())
+  name             String
+  slug             String   @unique
+  paypalPayeeEmail String
+  isVerified       Boolean  @default(true)
+  isDemoSeller     Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  products         Product[]
+}
+
+model Product {
+  id                   String   @id @default(uuid())
+  name                 String
+  description          String
+  category             String
+  merchantId           String
+  price                Decimal  @db.Decimal(10, 2)
+  currency             String   @default("USD")
+  attributes           Json     // Array of tags/attributes: ["wireless", "noise-cancelling"]
+  inStock              Boolean  @default(true)
+  sku                  String   @unique
+  deliveryEstimateDays Int      @default(2)
+  imageUrl             String
+
+  merchant             Merchant @relation(fields: [merchantId], references: [id])
+}
+
+model IntentMandate {
+  id                   String   @id @default(uuid())
+  userId               String
+  title                String
+  naturalInstruction   String
+  budgetLimit          Decimal  @db.Decimal(10, 2)
+  currency             String   @default("USD")
+  permittedMerchants   Json     // ["Demo Electronics", ...]
+  restrictedMerchants  Json     // ["ShadyDeals LLC", ...]
+  requiredAttributes   Json     // ["wireless", ...]
+  excludedCategories   Json     // ["refurbished", ...]
+  maxQuantity          Int      @default(1)
+  requireHumanApproval Boolean  @default(true)
+  status               String   @default("ACTIVE") // DRAFT, ACTIVE, EXPIRED, REVOKED, COMPLETED
+  signature            String
+  signingKeyVersion    String   @default("v1")
+  fingerprint          String
+  expiresAt            DateTime
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user                 User     @relation(fields: [userId], references: [id])
+  proposals            PurchaseProposal[]
+  decisions            AuthorizationDecision[]
+  approvals            Approval[]
+  payments             Payment[]
+}
+
+model PurchaseProposal {
+  id                    String   @id @default(uuid())
+  mandateId             String
+  productId             String
+  merchantId            String
+  proposedAmount        Decimal  @db.Decimal(10, 2)
+  currency              String   @default("USD")
+  quantity              Int      @default(1)
+  proposalFingerprint   String
+  reasoningSummary      String
+  constraintsSatisfied  Json
+  constraintsViolated   Json
+  requiresHumanApproval Boolean  @default(true)
+  status                String   @default("PENDING") // PENDING, APPROVED, BLOCKED, EXPIRED
+  createdAt             DateTime @default(now())
+
+  mandate               IntentMandate @relation(fields: [mandateId], references: [id])
+  decisions             AuthorizationDecision[]
+  approvals             Approval[]
+  payments              Payment[]
+}
+
+model AuthorizationDecision {
+  id              String   @id @default(uuid())
+  mandateId       String
+  proposalId      String
+  decision        String   // ALLOW, BLOCK, REQUIRE_APPROVAL
+  reasonCodes     Json     // ["BUDGET_EXCEEDED", ...]
+  evaluatedAmount Decimal  @db.Decimal(10, 2)
+  maximumAmount   Decimal  @db.Decimal(10, 2)
+  currency        String   @default("USD")
+  evaluatedAt     DateTime @default(now())
+
+  mandate         IntentMandate    @relation(fields: [mandateId], references: [id])
+  proposal        PurchaseProposal @relation(fields: [proposalId], references: [id])
+}
+
+model Approval {
+  id                  String    @id @default(uuid())
+  proposalId          String
+  mandateId           String
+  proposalFingerprint String
+  customerConsent     Boolean   @default(true)
+  status              String    @default("APPROVED") // PENDING, APPROVED, USED, EXPIRED, REVOKED
+  approvedAt          DateTime  @default(now())
+  expiresAt           DateTime
+  usedAt              DateTime?
+
+  mandate             IntentMandate    @relation(fields: [mandateId], references: [id])
+  proposal            PurchaseProposal @relation(fields: [proposalId], references: [id])
+  payments            Payment[]
+}
+
+model Payment {
+  id                  String   @id @default(uuid())
+  approvalId          String
+  mandateId           String
+  proposalId          String
+  paypalOrderId       String   @unique
+  paypalPayeeEmail    String
+  amount              Decimal  @db.Decimal(10, 2)
+  currency            String   @default("USD")
+  status              String   @default("CREATED") // CREATED, APPROVED, CAPTURE_PENDING, CAPTURED, FAILED, DENIED, RECONCILIATION_EXCEPTION
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  approval            Approval          @relation(fields: [approvalId], references: [id])
+  mandate             IntentMandate     @relation(fields: [mandateId], references: [id])
+  proposal            PurchaseProposal  @relation(fields: [proposalId], references: [id])
+  captures            PaymentCapture[]
+  passport            TransactionPassport?
+}
+
+model PaymentCapture {
+  id                   String   @id @default(uuid())
+  paymentId            String
+  paypalCaptureId      String   @unique
+  paypalOrderId        String
+  capturedAmount       Decimal  @db.Decimal(10, 2)
+  currency             String   @default("USD")
+  reconciliationStatus String   @default("RECONCILED") // RECONCILED, EXCEPTION
+  capturedAt           DateTime @default(now())
+  rawResponse          Json
+
+  payment              Payment  @relation(fields: [paymentId], references: [id])
+}
+
+model PaymentWebhookEvent {
+  id             String   @id @default(uuid())
+  paypalEventId  String   @unique
+  eventType      String
+  transmissionId String
+  status         String   // VERIFIED, FAILED, DUPLICATE
+  payload        Json
+  receivedAt     DateTime @default(now())
+}
+
+model TransactionPassport {
+  id                 String   @id @default(uuid())
+  transactionId      String   @unique
+  mandateId          String
+  proposalId         String
+  approvalId         String
+  paymentId          String   @unique
+  verificationStatus String   @default("VERIFIED") // VERIFIED, INVALID, INCOMPLETE
+  genesisHash        String
+  finalHash          String
+  totalEvents        Int      @default(0)
+  issuedAt           DateTime @default(now())
+
+  payment            Payment  @relation(fields: [paymentId], references: [id])
+  events             TransactionEvent[]
+}
+
+model TransactionEvent {
+  id               String   @id @default(uuid())
+  passportId       String
+  sequenceNumber   Int
+  eventType        String   // MANDATE_CREATED, PROPOSAL_GENERATED, AUTH_EVALUATED, HUMAN_APPROVED, ORDER_CREATED, PAYMENT_CAPTURED, RECONCILED
+  canonicalPayload String   @db.Text
+  previousHash     String
+  currentHash      String
+  signature        String?
+  timestamp        DateTime @default(now())
+
+  passport         TransactionPassport @relation(fields: [passportId], references: [id])
+
+  @@unique([passportId, sequenceNumber])
+}
+
+model EvidenceRecord {
+  id                 String   @id @default(uuid())
+  transactionId      String
+  source             String   // USER_INPUT, AGENT_OUTPUT, KERNEL_EVALUATION, PAYPAL_API, PAYPAL_WEBHOOK
+  recordType         String
+  recordReferenceId  String
+  payload            Json
+  isVerified         Boolean  @default(true)
+  recordedAt         DateTime @default(now())
+}
