@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { store } from "@/server/repositories/store";
 
 export async function GET() {
+  await store.ensureInitialized();
   const passports = store.listPassports();
   return NextResponse.json({
     success: true,
@@ -9,3 +10,4 @@ export async function GET() {
     data: passports,
   });
 }
+

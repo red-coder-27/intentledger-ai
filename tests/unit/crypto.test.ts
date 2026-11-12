@@ -65,4 +65,27 @@ describe("Cryptographic Primitives Unit Tests", () => {
     const tamperedMerchant = { ...proposal, merchantId: "merch_rogue_99" };
     expect(verifyProposalFingerprint(fingerprint, tamperedMerchant)).toBe(false);
   });
+
+  it("supports Ed25519 key rotation while preserving historical signature verification", () => {
+    // 1. Sign a payload with initial key version (v1)
+    const initialPayload = { mandateId: "mandate_historical_01", amount: "85.00" };
+    const v1Signature = KeyManager.signCanonical(initialPayload);
+    expect(KeyManager.verifyCanonical(initialPayload, v1Signature)).toBe(true);
+
+    // 2. Rotate to key version v2
+    KeyManager.rotateKey("v2");
+    expect(KeyManager.KEY_VERSION).toBe("v2");
+
+    // 3. Historical v1 signature remains valid via automatic historical registry lookup
+    expect(KeyManager.verifyCanonical(initialPayload, v1Signature)).toBe(true);
+    // Explicit version verification also succeeds
+    expect(KeyManager.verifyCanonical(initialPayload, v1Signature, "v1")).toBe(true);
+
+    // 4. Sign a new payload under v2
+    const newPayload = { mandateId: "mandate_active_02", amount: "100.00" };
+    const v2Signature = KeyManager.signCanonical(newPayload);
+    expect(KeyManager.verifyCanonical(newPayload, v2Signature)).toBe(true);
+    expect(KeyManager.verifyCanonical(newPayload, v2Signature, "v2")).toBe(true);
+  });
 });
+

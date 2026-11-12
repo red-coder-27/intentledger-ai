@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { store } from "@/server/repositories/store";
 
 export async function GET() {
+  await store.ensureInitialized();
   const mandates = store.listMandates();
   const activeMandates = mandates.filter((m) => m.status === "ACTIVE").length;
 
@@ -41,7 +42,7 @@ export async function GET() {
         sandboxMode: true,
         generatedAt: new Date().toISOString(),
       },
-      recentActivity: payments.slice(0, 5),
+      recentActivity: payments,
     },
   });
 }

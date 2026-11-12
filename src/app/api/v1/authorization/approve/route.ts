@@ -12,6 +12,7 @@ const ApproveProposalSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    await store.ensureInitialized();
     const body = await req.json();
     const parsed = ApproveProposalSchema.parse(body);
 
@@ -46,6 +47,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Verify merchant and payee mapping
+    const payeeEmail = store.resolvePayeeEmail(proposal.merchantId);
+
+    if (!payeeEmail) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unconfigured PayPal Sandbox Payee: Proposal merchant is not mapped to a valid PayPal payee.",
+          reasonCode: "MERCHANT_NOT_CONFIGURED",
+        },
+        { status: 500 }
+      );
+    }
+
     const approvalId = `appr_${Date.now()}`;
     const approval: ApprovalData = {
       id: approvalId,
@@ -58,11 +73,11 @@ export async function POST(req: NextRequest) {
       expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(), // 15-minute validity window
     };
 
-    store.saveApproval(approval);
+    await store.saveApproval(approval);
 
     // Update proposal status
     proposal.status = "APPROVED";
-    store.saveProposal(proposal);
+    await store.saveProposal(proposal);
 
     return NextResponse.json({
       success: true,
@@ -76,3 +91,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

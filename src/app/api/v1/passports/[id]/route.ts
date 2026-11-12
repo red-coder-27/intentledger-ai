@@ -5,6 +5,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await store.ensureInitialized();
   const { id } = await params;
   const passport = store.getPassportById(id) || store.getPassportByTransactionId(id);
 
@@ -20,3 +21,4 @@ export async function GET(
     data: passport,
   });
 }
+

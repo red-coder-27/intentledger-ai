@@ -22,3 +22,4 @@
 - **Proposal Fingerprinting:** SHA-256 digest of:
   `canonicalStringify({ mandateId, productId, merchantId, amount, currency, quantity })`
 - **Key Storage:** Server environment variable `INTENTLEDGER_SIGNING_KEY_ED25519` (hex/base64). Never committed to version control.
+

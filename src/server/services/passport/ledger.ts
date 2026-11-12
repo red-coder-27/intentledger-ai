@@ -204,7 +204,18 @@ export class TransactionPassportService {
       events,
     };
 
-    store.savePassport(passport);
+    store.savePassport(passport).catch(() => {
+      // Non-blocking in offline/unit testing contexts
+    });
+    return passport;
+  }
+
+  /**
+   * Constructs the tamper-evident hash chain and awaits full Neon persistence
+   */
+  public static async createAndPersistPassport(input: CreatePassportInput): Promise<TransactionPassportData> {
+    const passport = this.createPassport(input);
+    await store.savePassport(passport);
     return passport;
   }
 
@@ -314,3 +325,4 @@ export class TransactionPassportService {
     };
   }
 }
+

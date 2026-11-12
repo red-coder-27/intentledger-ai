@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { AuthorizationKernel } from "@/server/services/authorization/kernel";
+import { store } from "@/server/repositories/store";
 
 const EvaluateSchema = z.object({
   mandateId: z.string().min(1),
@@ -11,6 +12,7 @@ const EvaluateSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    await store.ensureInitialized();
     const body = await req.json();
     const parsed = EvaluateSchema.parse(body);
 
@@ -27,3 +29,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

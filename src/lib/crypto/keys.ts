@@ -9,30 +9,96 @@ const DEFAULT_DEV_ED25519_PRIVATE_KEY_PKCS8 =
 export class KeyManager {
   private static privateKey: crypto.KeyObject | null = null;
   private static publicKey: crypto.KeyObject | null = null;
-  public static readonly KEY_VERSION = process.env.INTENTLEDGER_KEY_VERSION || "v1";
+  private static currentVersion: string = process.env.INTENTLEDGER_KEY_VERSION || "v1";
+  private static keyRegistry: Map<string, crypto.KeyObject> = new Map();
+
+  public static get KEY_VERSION(): string {
+    return this.currentVersion;
+  }
+
+  private static parsePrivateKey(keyStr: string): crypto.KeyObject {
+    const trimmed = keyStr.trim();
+    if (trimmed.includes("PRIVATE KEY")) {
+      return crypto.createPrivateKey(trimmed);
+    }
+    // PKCS#8 ASN.1 DER prefix for Ed25519 (RFC 8410: id-Ed25519 1.3.101.112)
+    const pkcs8Prefix = Buffer.from("302e020100300506032b657004220420", "hex");
+
+    // Check if hex (64 chars = 32 bytes seed, 128 chars = 64 bytes seed + pubkey)
+    if (/^[0-9a-fA-F]+$/.test(trimmed)) {
+      const seedHex = trimmed.length >= 64 ? trimmed.slice(0, 64) : trimmed;
+      const seed = Buffer.from(seedHex, "hex");
+      const der = Buffer.concat([pkcs8Prefix, seed]);
+      return crypto.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+    }
+
+    // Check if base64
+    const buf = Buffer.from(trimmed, "base64");
+    if (buf.length === 32 || buf.length === 64) {
+      const seed = buf.subarray(0, 32);
+      const der = Buffer.concat([pkcs8Prefix, seed]);
+      return crypto.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+    } else if (buf.length === 48) {
+      return crypto.createPrivateKey({ key: buf, format: "der", type: "pkcs8" });
+    }
+
+    throw new Error("Unrecognized Ed25519 private key format");
+  }
 
   private static init() {
     if (this.privateKey && this.publicKey) return;
 
     try {
-      const envKey = process.env.INTENTLEDGER_SIGNING_KEY_ED25519;
-      if (envKey && envKey.includes("PRIVATE KEY")) {
-        this.privateKey = crypto.createPrivateKey(envKey);
+      const envKey = process.env.INTENTLEDGER_SIGNING_KEY_ED25519?.trim();
+      if (envKey) {
+        this.privateKey = this.parsePrivateKey(envKey);
       } else {
         // Fallback to stable dev keypair
-        const pair = crypto.generateKeyPairSync("ed25519", {
-          privateKeyEncoding: { type: "pkcs8", format: "pem" },
-          publicKeyEncoding: { type: "spki", format: "pem" },
-        });
-        this.privateKey = crypto.createPrivateKey(pair.privateKey);
+        this.privateKey = crypto.createPrivateKey(DEFAULT_DEV_ED25519_PRIVATE_KEY_PKCS8);
       }
       this.publicKey = crypto.createPublicKey(this.privateKey);
     } catch {
-      // Deterministic fallback pair for resilience
+      // Deterministic fallback to stable dev key
+      this.privateKey = crypto.createPrivateKey(DEFAULT_DEV_ED25519_PRIVATE_KEY_PKCS8);
+      this.publicKey = crypto.createPublicKey(this.privateKey);
+    }
+
+    if (this.publicKey) {
+      this.keyRegistry.set(this.currentVersion, this.publicKey);
+    }
+  }
+
+  /**
+   * Registers a historical public key version for backward-compatible verification
+   */
+  public static registerKeyVersion(version: string, publicKeyPem: string): void {
+    try {
+      const keyObj = crypto.createPublicKey(publicKeyPem);
+      this.keyRegistry.set(version, keyObj);
+    } catch (err: any) {
+      console.error(`Failed to register key version ${version}:`, err.message);
+    }
+  }
+
+  /**
+   * Rotates the active signing key to a new version, preserving historical keys
+   */
+  public static rotateKey(newVersion: string, newPrivateKeyPem?: string): void {
+    this.init();
+    // Archive current key under its active version
+    if (this.publicKey) {
+      this.keyRegistry.set(this.currentVersion, this.publicKey);
+    }
+
+    if (newPrivateKeyPem) {
+      this.privateKey = crypto.createPrivateKey(newPrivateKeyPem);
+    } else {
       const pair = crypto.generateKeyPairSync("ed25519");
       this.privateKey = pair.privateKey;
-      this.publicKey = pair.publicKey;
     }
+    this.publicKey = crypto.createPublicKey(this.privateKey);
+    this.currentVersion = newVersion;
+    this.keyRegistry.set(newVersion, this.publicKey);
   }
 
   public static getPublicKeyPem(): string {
@@ -57,20 +123,42 @@ export class KeyManager {
   public static verifyCanonical(
     payload: unknown,
     signatureHex: string,
-    publicKeyPem?: string
+    versionOrPem?: string
   ): boolean {
     try {
       this.init();
       const canonical = canonicalStringify(payload);
-      const pubKey = publicKeyPem ? crypto.createPublicKey(publicKeyPem) : this.publicKey!;
-      return crypto.verify(
-        null,
-        Buffer.from(canonical, "utf8"),
-        pubKey,
-        Buffer.from(signatureHex, "hex")
-      );
+      const payloadBuf = Buffer.from(canonical, "utf8");
+      const sigBuf = Buffer.from(signatureHex, "hex");
+
+      // 1. Direct PEM provided
+      if (versionOrPem && versionOrPem.includes("KEY")) {
+        const pubKey = crypto.createPublicKey(versionOrPem);
+        return crypto.verify(null, payloadBuf, pubKey, sigBuf);
+      }
+
+      // 2. Specific version registered
+      if (versionOrPem && this.keyRegistry.has(versionOrPem)) {
+        const pubKey = this.keyRegistry.get(versionOrPem)!;
+        return crypto.verify(null, payloadBuf, pubKey, sigBuf);
+      }
+
+      // 3. Current active key
+      if (this.publicKey && crypto.verify(null, payloadBuf, this.publicKey, sigBuf)) {
+        return true;
+      }
+
+      // 4. Fallback search across all historical keys in registry for historical compatibility
+      for (const [ver, historicalKey] of this.keyRegistry.entries()) {
+        if (ver !== this.currentVersion && crypto.verify(null, payloadBuf, historicalKey, sigBuf)) {
+          return true;
+        }
+      }
+
+      return false;
     } catch {
       return false;
     }
   }
 }
+

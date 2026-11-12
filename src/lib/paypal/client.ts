@@ -4,6 +4,11 @@
  * and Webhook signature verification.
  */
 
+import dns from "node:dns";
+try {
+  dns.setDefaultResultOrder("ipv4first");
+} catch {}
+
 const BASE_URL = process.env.PAYPAL_BASE_URL || "https://api-m.sandbox.paypal.com";
 
 export class PayPalApiError extends Error {
@@ -58,7 +63,7 @@ export class PayPalClient {
     return !!(id && secret && !id.startsWith("mock_") && !secret.startsWith("mock_"));
   }
 
-  private static async getAccessToken(): Promise<string> {
+  public static async getAccessToken(): Promise<string> {
     if (cachedToken && Date.now() < cachedToken.expiresAt) {
       return cachedToken.value;
     }
@@ -95,9 +100,55 @@ export class PayPalClient {
   }
 
   /**
+   * Constructs and validates the PayPal Orders API v2 request payload.
+   * Enforces CAPTURE intent and explicit, non-placeholder payee mapping.
+   */
+  public static buildOrderPayload(options: PayPalCreateOrderOptions) {
+    const trimmedPayee = options.payeeEmail?.trim();
+    if (!trimmedPayee || trimmedPayee === "merchant-demo@intentledger.ai") {
+      throw new Error(
+        "Invalid or unconfigured PayPal payee email: A valid PayPal Sandbox payee email is required, and placeholder 'merchant-demo@intentledger.ai' is not permitted."
+      );
+    }
+
+    return {
+      intent: "CAPTURE" as const,
+      purchase_units: [
+        {
+          reference_id: options.referenceId,
+          custom_id: options.customId,
+          description: options.description,
+          amount: {
+            currency_code: options.currency,
+            value: Number(options.amount).toFixed(2),
+          },
+          payee: {
+            email_address: trimmedPayee,
+          },
+        },
+      ],
+      payment_source: {
+        paypal: {
+          experience_context: {
+            payment_method_preference: "IMMEDIATE_PAYMENT_REQUIRED",
+            brand_name: "INTENTLEDGER AI",
+            locale: "en-US",
+            landing_page: "LOGIN",
+            user_action: "PAY_NOW",
+            return_url: options.returnUrl,
+            cancel_url: options.cancelUrl,
+          },
+        },
+      },
+    };
+  }
+
+  /**
    * Creates a PayPal Sandbox Order via Orders API v2
    */
   public static async createOrder(options: PayPalCreateOrderOptions): Promise<PayPalOrderResponse> {
+    const payload = this.buildOrderPayload(options);
+
     if (!this.isConfigured()) {
       // Controlled Sandbox test double for local execution
       const mockOrderId = `5O${Date.now().toString().slice(-8)}SANDBOX`;
@@ -121,36 +172,6 @@ export class PayPalClient {
     }
 
     const token = await this.getAccessToken();
-    const payload = {
-      intent: "CAPTURE",
-      purchase_units: [
-        {
-          reference_id: options.referenceId,
-          custom_id: options.customId,
-          description: options.description,
-          amount: {
-            currency_code: options.currency,
-            value: Number(options.amount).toFixed(2),
-          },
-          ...(options.payeeEmail && {
-            payee: { email_address: options.payeeEmail },
-          }),
-        },
-      ],
-      payment_source: {
-        paypal: {
-          experience_context: {
-            payment_method_preference: "IMMEDIATE_PAYMENT_REQUIRED",
-            brand_name: "INTENTLEDGER AI",
-            locale: "en-US",
-            landing_page: "LOGIN",
-            user_action: "PAY_NOW",
-            return_url: options.returnUrl,
-            cancel_url: options.cancelUrl,
-          },
-        },
-      },
-    };
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
@@ -246,6 +267,42 @@ export class PayPalClient {
   }
 
   /**
+   * Retrieves PayPal Order details from Orders API v2
+   */
+  public static async getOrderDetails(orderId: string): Promise<{
+    id: string;
+    status: string;
+    intent: string;
+    payer?: any;
+    purchase_units?: any[];
+  }> {
+    if (!this.isConfigured()) {
+      return {
+        id: orderId,
+        status: "APPROVED",
+        intent: "CAPTURE",
+        purchase_units: [],
+      };
+    }
+
+    const token = await this.getAccessToken();
+    const res = await fetch(`${BASE_URL}/v2/checkout/orders/${orderId}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      throw new PayPalApiError(res.status, `/v2/checkout/orders/${orderId}`, await res.text());
+    }
+
+    return (await res.json()) as any;
+  }
+
+  /**
    * Verifies incoming PayPal Webhook signature
    */
   public static async verifyWebhookSignature(params: {
@@ -290,3 +347,4 @@ export class PayPalClient {
     return body.verification_status === "SUCCESS";
   }
 }
+

@@ -319,3 +319,4 @@ export default function NewMandatePage() {
     </div>
   );
 }
+

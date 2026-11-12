@@ -7,6 +7,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ transactionId: string }> }
 ) {
+  await store.ensureInitialized();
   const { transactionId } = await params;
   const passport = store.getPassportByTransactionId(transactionId) || store.getPassportById(transactionId);
 
@@ -43,3 +44,4 @@ export async function GET(
     },
   });
 }
+

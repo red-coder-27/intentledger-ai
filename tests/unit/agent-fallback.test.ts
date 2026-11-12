@@ -19,7 +19,7 @@ describe("Shopping Agent & Scenario 9 Fallback Tests", () => {
 
     // Restore env
     process.env.GROQ_API_KEY = originalKey;
-  });
+  }, 60000);
 
   it("Ensures proposed price is bound strictly to database catalogue, not arbitrary input", () => {
     const mandate = store.getMandateById("mandate_demo_headphones_100")!;
@@ -29,3 +29,4 @@ describe("Shopping Agent & Scenario 9 Fallback Tests", () => {
     expect(result.proposal.proposedAmount).toBe(trustedProduct.price);
   });
 });
+

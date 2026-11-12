@@ -54,8 +54,8 @@ export class AuthorizationKernel {
         mandate.status === "EXPIRED"
           ? "MANDATE_EXPIRED"
           : mandate.status === "REVOKED"
-          ? "MANDATE_REVOKED"
-          : "MANDATE_INACTIVE";
+            ? "MANDATE_REVOKED"
+            : "MANDATE_INACTIVE";
       reasonCodes.push(code);
       checksDetail.push({ checkName: "Mandate Active", passed: false, reasonCode: code });
       return this.conclude("BLOCK", reasonCodes, input, evaluatedAmount, maximumAmount, currency, checksDetail);

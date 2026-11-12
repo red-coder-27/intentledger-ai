@@ -1,12 +1,17 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import { AgGridReact } from "ag-grid-react";
-import { ColDef, ModuleRegistry } from "ag-grid-community";
-import { AllCommunityModule } from "ag-grid-community";
-import "ag-grid-community/styles/ag-grid.css";
-import "ag-grid-community/styles/ag-theme-alpine.css";
+import {
+  ColDef,
+  ModuleRegistry,
+  AllCommunityModule,
+  enableDevValidations,
+  themeAlpine,
+  RowSelectionOptions,
+} from "ag-grid-community";
 import {
   Receipt,
   Search,
@@ -15,17 +20,46 @@ import {
   RefreshCw,
   FileCheck,
   ArrowRight,
+  CheckCircle2,
+  AlertTriangle,
+  CreditCard,
 } from "lucide-react";
 import { PaymentRecord } from "@/types";
 
-// Register AG Grid Community Modules
+// Enable development diagnostics for AG Grid in non-production environments
+if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
+  enableDevValidations();
+}
+
+// Register AG Grid Community Modules before any grid instance is created
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 export default function TransactionsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-xs text-[#64748B]">Loading Transaction Workspace...</div>}>
+      <TransactionsContent />
+    </Suspense>
+  );
+}
+
+function TransactionsContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // PayPal Sandbox callback parameters
+  const callbackStatus = searchParams.get("status");
+  const callbackToken = searchParams.get("token");
+  const callbackPayerId = searchParams.get("PayerID") || searchParams.get("payerId");
+
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [quickFilterText, setQuickFilterText] = useState("");
   const [selectedPayment, setSelectedPayment] = useState<PaymentRecord | null>(null);
+
+  // In-line capture state from callback
+  const [capturing, setCapturing] = useState(false);
+  const [captureSuccess, setCaptureSuccess] = useState<any>(null);
+  const [captureError, setCaptureError] = useState<string | null>(null);
 
   const fetchTransactions = async () => {
     try {
@@ -35,7 +69,15 @@ export default function TransactionsPage() {
       if (json.success && json.data.recentActivity) {
         setPayments(json.data.recentActivity);
         if (json.data.recentActivity.length > 0) {
-          setSelectedPayment(json.data.recentActivity[0]);
+          // If a token was provided in callback, try to select that matching transaction
+          if (callbackToken) {
+            const matched = json.data.recentActivity.find(
+              (p: PaymentRecord) => p.paypalOrderId === callbackToken
+            );
+            setSelectedPayment(matched || json.data.recentActivity[0]);
+          } else {
+            setSelectedPayment(json.data.recentActivity[0]);
+          }
         }
       }
     } catch (e) {
@@ -47,7 +89,49 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     fetchTransactions();
-  }, []);
+  }, [callbackToken]);
+
+  // Find the local payment record associated with callback token
+  const matchedCallbackPayment = useMemo(() => {
+    if (!callbackToken) return null;
+    return payments.find((p) => p.paypalOrderId === callbackToken) || null;
+  }, [callbackToken, payments]);
+
+  // Handle explicit capture action directly from callback recovery
+  const handleCaptureFromCallback = async () => {
+    if (!callbackToken) return;
+    setCapturing(true);
+    setCaptureError(null);
+
+    try {
+      // Find or resolve internal payment ID
+      const paymentId = matchedCallbackPayment?.id;
+      if (!paymentId) {
+        throw new Error(`Could not find local payment record for PayPal Order ${callbackToken}`);
+      }
+
+      const res = await fetch("/api/v1/payments/capture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentId,
+          paypalOrderId: callbackToken,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Capture execution failed");
+      }
+
+      setCaptureSuccess(json.data);
+      await fetchTransactions();
+    } catch (err: any) {
+      setCaptureError(err.message || "Failed to capture PayPal order");
+    } finally {
+      setCapturing(false);
+    }
+  };
 
   const columnDefs = useMemo<ColDef<PaymentRecord>[]>(
     () => [
@@ -123,11 +207,19 @@ export default function TransactionsPage() {
         headerName: "Reconciliation",
         width: 140,
         cellRenderer: (params: any) => {
+          const isCaptured = params.data?.status === "CAPTURED";
+          if (!isCaptured) {
+            return (
+              <span className="px-2 py-0.5 rounded font-mono text-[10px] font-medium bg-[#F1F5F9] text-[#64748B]">
+                NOT_CAPTURED
+              </span>
+            );
+          }
           const isReconciled = params.value === "RECONCILED";
           return (
             <span
               className={`px-2 py-0.5 rounded font-mono text-[10px] font-medium ${
-                isReconciled ? "bg-[#E8F5E9] text-[#16835D]" : "bg-[#FEF3C7] text-[#B7791F]"
+                isReconciled ? "bg-[#E8F5E9] text-[#16835D]" : "bg-[#FEE2E2] text-[#C2413B]"
               }`}
             >
               {params.value || "PENDING"}
@@ -161,6 +253,16 @@ export default function TransactionsPage() {
     ],
     []
   );
+
+  const rowSelection = useMemo<RowSelectionOptions<PaymentRecord>>(
+    () => ({
+      mode: "singleRow",
+      enableClickSelection: true,
+    }),
+    []
+  );
+
+  const paginationPageSizeSelector = useMemo(() => [10, 20, 50, 100], []);
 
   return (
     <div className="space-y-6">
@@ -197,16 +299,95 @@ export default function TransactionsPage() {
         </div>
       </div>
 
-      {/* AG Grid Container */}
+      {/* PayPal Callback Recovery Banner */}
+      {callbackToken && (
+        <div className="bg-[#F0F9FF] border border-[#BAE6FD] rounded-lg p-4 space-y-3 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-full bg-[#1769AA] text-white flex items-center justify-center flex-shrink-0">
+                <CreditCard className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#102A43]">
+                  PayPal Sandbox Checkout Callback Received
+                </h3>
+                <p className="text-xs text-[#64748B] font-mono mt-0.5">
+                  Order Token: <strong className="text-[#102A43]">{callbackToken}</strong>
+                  {callbackPayerId && (
+                    <span> | Buyer PayerID: <strong className="text-[#102A43]">{callbackPayerId}</strong></span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <span className="px-2.5 py-1 bg-[#FEF3C7] text-[#B7791F] rounded font-mono text-xs font-bold uppercase">
+              {matchedCallbackPayment?.status === "CAPTURED" ? "CAPTURED" : "APPROVED (Ready for Capture)"}
+            </span>
+          </div>
+
+          <p className="text-xs text-[#334155]">
+            The buyer completed authorization in the PayPal Sandbox window. To guarantee deterministic non-repudiation, payment funds must be captured, reconciled with authorized mandate constraints, and sealed into a cryptographic Transaction Passport.
+          </p>
+
+          {captureError && (
+            <div className="p-2.5 bg-[#FEE2E2] border border-[#FECACA] rounded text-xs text-[#C2413B] flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+              <span>{captureError}</span>
+            </div>
+          )}
+
+          {captureSuccess && (
+            <div className="p-3 bg-[#E8F5E9] border border-[#C8E6C9] rounded text-xs text-[#16835D] flex items-center justify-between font-mono">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>
+                  Capture Confirmed! Capture ID: <strong>{captureSuccess.paypalCaptureId}</strong>
+                </span>
+              </div>
+              <Link
+                href={`/app/passports/${captureSuccess.passportId}`}
+                className="px-3 py-1 bg-[#16835D] text-white rounded font-semibold hover:bg-[#126B4B] transition-colors"
+              >
+                View Sealed Passport
+              </Link>
+            </div>
+          )}
+
+          {matchedCallbackPayment?.status !== "CAPTURED" && !captureSuccess && (
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button
+                onClick={handleCaptureFromCallback}
+                disabled={capturing}
+                className="py-2 px-4 bg-[#16835D] hover:bg-[#126B4B] text-white rounded text-xs font-semibold transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                <span>{capturing ? "Revalidating & Capturing..." : "Capture & Issue Passport"}</span>
+              </button>
+
+              <Link
+                href={`/app/authorization?orderId=${callbackToken}`}
+                className="py-2 px-3 border border-[#CBD5E1] rounded text-xs font-semibold text-[#102A43] hover:bg-white transition-colors flex items-center gap-1.5"
+              >
+                <span>Inspect in Authorization Center</span>
+                <ArrowRight className="h-3.5 w-3.5 text-[#1769AA]" />
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* AG Grid Container - Styled via AG Grid Theming API without conflicting legacy CSS files */}
       <div className="bg-white border border-[#E2E8F0] rounded-lg overflow-hidden shadow-sm">
-        <div className="ag-theme-alpine w-full h-[400px]">
+        <div className="w-full h-[400px]">
           <AgGridReact
+            theme={themeAlpine}
             rowData={payments}
             columnDefs={columnDefs}
             quickFilterText={quickFilterText}
             pagination={true}
             paginationPageSize={10}
-            rowSelection="single"
+            paginationPageSizeSelector={paginationPageSizeSelector}
+            rowSelection={rowSelection}
             onRowClicked={(event) => setSelectedPayment(event.data || null)}
             defaultColDef={{
               sortable: true,
@@ -231,7 +412,13 @@ export default function TransactionsPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="px-2.5 py-1 bg-[#E8F5E9] text-[#16835D] rounded font-mono text-xs font-bold">
+              <span
+                className={`px-2.5 py-1 rounded font-mono text-xs font-bold ${
+                  selectedPayment.status === "CAPTURED"
+                    ? "bg-[#E8F5E9] text-[#16835D]"
+                    : "bg-[#FEF3C7] text-[#B7791F]"
+                }`}
+              >
                 {selectedPayment.status}
               </span>
               <Link
@@ -262,8 +449,18 @@ export default function TransactionsPage() {
 
             <div className="p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded">
               <span className="text-[#64748B] block text-[11px]">Reconciliation Outcome</span>
-              <span className="font-bold text-[#16835D]">
-                {selectedPayment.reconciliationStatus || "RECONCILED"}
+              <span
+                className={`font-bold ${
+                  selectedPayment.status === "CAPTURED"
+                    ? selectedPayment.reconciliationStatus === "RECONCILED"
+                      ? "text-[#16835D]"
+                      : "text-[#C2413B]"
+                    : "text-[#64748B]"
+                }`}
+              >
+                {selectedPayment.status === "CAPTURED"
+                  ? selectedPayment.reconciliationStatus || "RECONCILED"
+                  : "NOT_CAPTURED"}
               </span>
             </div>
           </div>

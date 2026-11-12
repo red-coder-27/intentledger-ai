@@ -31,3 +31,4 @@ export function createGenesisHash(transactionId: string, timestamp: string): str
     canonicalStringify({ transactionId, timestamp, type: "GENESIS" })
   );
 }
+

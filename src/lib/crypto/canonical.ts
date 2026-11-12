@@ -22,3 +22,4 @@ export function canonicalStringify(obj: unknown): string {
 
   return "{" + pairs.join(",") + "}";
 }
+

@@ -5,7 +5,7 @@ export const SEEDED_MERCHANTS: MerchantData[] = [
     id: "merch_demo_01",
     name: "Demo Electronics",
     slug: "demo-electronics",
-    paypalPayeeEmail: process.env.PAYPAL_DEMO_PAYEE_EMAIL || "merchant-demo@intentledger.ai",
+    paypalPayeeEmail: process.env.PAYPAL_DEMO_PAYEE_EMAIL?.trim() || "",
     isVerified: true,
     isDemoSeller: true,
   },
@@ -269,3 +269,4 @@ export const SEEDED_PRODUCTS: ProductData[] = [
     imageUrl: "/images/products/speaker.svg",
   },
 ];
+

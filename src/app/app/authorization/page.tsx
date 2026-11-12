@@ -29,6 +29,7 @@ function AuthorizationContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const targetProposalId = searchParams.get("proposalId");
+  const targetOrderId = searchParams.get("orderId") || searchParams.get("token");
 
   const [proposals, setProposals] = useState<PurchaseProposalData[]>([]);
   const [selectedProposal, setSelectedProposal] = useState<PurchaseProposalData | null>(null);
@@ -44,25 +45,61 @@ function AuthorizationContent() {
 
   const loadData = async () => {
     try {
-      // Load proposals from store
-      const res = await fetch("/api/v1/agent/proposals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mandateId: "mandate_demo_headphones_100",
-          query: "wireless headphones",
-        }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setSelectedProposal(json.data.proposal);
-        setEvaluation(json.data.evaluation);
+      let proposalData: any = null;
+      let evalData: any = null;
+
+      // 1. If targetOrderId or targetProposalId is specified, fetch the exact proposal & associated lifecycle state
+      const queryUrl = targetOrderId
+        ? `/api/v1/agent/proposals?orderId=${encodeURIComponent(targetOrderId)}`
+        : targetProposalId
+        ? `/api/v1/agent/proposals?proposalId=${encodeURIComponent(targetProposalId)}`
+        : null;
+
+      if (queryUrl) {
+        const pRes = await fetch(queryUrl);
+        const pJson = await pRes.json();
+        if (pJson.success && pJson.data?.proposal) {
+          proposalData = pJson.data.proposal;
+          evalData = pJson.data.evaluation;
+          if (pJson.data.approval) {
+            setApproval(pJson.data.approval);
+          }
+          if (pJson.data.payment) {
+            setPaypalResult({
+              paymentId: pJson.data.payment.id,
+              paypalOrderId: pJson.data.payment.paypalOrderId,
+              status: pJson.data.payment.status === "CREATED" ? "APPROVED" : pJson.data.payment.status,
+            });
+          }
+        }
+      }
+
+      // 2. Fallback to generating or fetching default proposal if not found
+      if (!proposalData) {
+        const res = await fetch("/api/v1/agent/proposals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mandateId: "mandate_demo_headphones_100",
+            query: "wireless headphones",
+          }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          proposalData = json.data.proposal;
+          evalData = json.data.evaluation;
+        }
+      }
+
+      if (proposalData) {
+        setSelectedProposal(proposalData);
+        setEvaluation(evalData);
 
         // Fetch mandate details
         const mRes = await fetch("/api/v1/intents");
         const mJson = await mRes.json();
         if (mJson.success) {
-          const matched = mJson.data.find((m: any) => m.id === json.data.proposal.mandateId);
+          const matched = mJson.data.find((m: any) => m.id === proposalData.mandateId);
           setMandate(matched);
         }
       }
@@ -73,11 +110,15 @@ function AuthorizationContent() {
 
   useEffect(() => {
     loadData();
-  }, [targetProposalId]);
+  }, [targetProposalId, targetOrderId]);
 
   // Step 1: Human Approval of Exact Proposal
   const handleApprove = async () => {
     if (!selectedProposal) return;
+    if (!selectedProposal.paypalPayeeEmail) {
+      setError("Cannot authorize proposal: Verified PayPal Sandbox payee is unconfigured or unavailable.");
+      return;
+    }
     setApproving(true);
     setError(null);
 
@@ -227,7 +268,15 @@ function AuthorizationContent() {
                 </div>
                 <div className="flex justify-between font-mono pt-0.5">
                   <span className="text-[#64748B]">PayPal Sandbox Target Payee:</span>
-                  <span className="text-[#102A43] font-medium">merchant-demo@intentledger.ai</span>
+                  {selectedProposal.paypalPayeeEmail ? (
+                    <span className="text-[#102A43] font-medium font-mono">
+                      {selectedProposal.paypalPayeeEmail}
+                    </span>
+                  ) : (
+                    <span className="text-[#C2413B] font-bold font-mono">
+                      CONFIGURATION ERROR: Payee Unresolved
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -296,14 +345,29 @@ function AuthorizationContent() {
                 "I authorize <strong>{selectedProposal.productName}</strong> for exactly <strong>${selectedProposal.proposedAmount} USD</strong> under mandate {selectedProposal.mandateId}."
               </div>
 
+              {!selectedProposal.paypalPayeeEmail && (
+                <div className="p-2.5 bg-[#FEE2E2] border border-[#FECACA] rounded text-xs text-[#C2413B] flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                  <span>
+                    PayPal Sandbox Target Payee is unconfigured or unavailable. Authorization is disabled.
+                  </span>
+                </div>
+              )}
+
               {!approval ? (
                 <button
                   onClick={handleApprove}
-                  disabled={approving}
-                  className="w-full py-2.5 px-4 bg-[#1769AA] hover:bg-[#12538A] text-white rounded text-xs font-semibold transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                  disabled={approving || !selectedProposal.paypalPayeeEmail}
+                  className="w-full py-2.5 px-4 bg-[#1769AA] hover:bg-[#12538A] text-white rounded text-xs font-semibold transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ShieldCheck className="h-4 w-4" />
-                  <span>{approving ? "Locking Fingerprint..." : "Authorize Exact Proposal"}</span>
+                  <span>
+                    {approving
+                      ? "Locking Fingerprint..."
+                      : !selectedProposal.paypalPayeeEmail
+                      ? "Authorization Disabled: Unconfigured Payee"
+                      : "Authorize Exact Proposal"}
+                  </span>
                 </button>
               ) : (
                 <div className="p-2.5 bg-[#E8F5E9] border border-[#C8E6C9] rounded text-xs text-[#16835D] flex items-center gap-2 font-mono">

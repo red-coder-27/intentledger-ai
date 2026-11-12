@@ -53,7 +53,7 @@ export default function SettingsDiagnosticsPage() {
             </div>
             <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded flex justify-between">
               <span className="text-[#64748B]">Demonstration Payee:</span>
-              <span className="font-bold text-[#102A43]">merchant-demo@intentledger.ai</span>
+              <span className="font-bold font-mono text-[#102A43]">sb-25i8a53852340@business.example.com</span>
             </div>
           </div>
         </div>
@@ -142,3 +142,4 @@ export default function SettingsDiagnosticsPage() {
     </div>
   );
 }
+

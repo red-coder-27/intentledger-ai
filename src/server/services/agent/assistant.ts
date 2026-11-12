@@ -2,6 +2,7 @@ import { z } from "zod";
 import { store } from "@/server/repositories/store";
 import { ProductData, PurchaseProposalData } from "@/types";
 import { computeProposalFingerprint } from "@/lib/crypto/fingerprint";
+import { GroqClient } from "@/server/ai/client";
 
 export const ProposalGenerationSchema = z.object({
   intentSummary: z.string(),
@@ -31,17 +32,16 @@ export class ShoppingAgentService {
     mandateId: string,
     query: string
   ): Promise<AgentRecommendationResult> {
+    await store.ensureInitialized();
     const mandate = store.getMandateById(mandateId);
     if (!mandate) {
       throw new Error(`Mandate ${mandateId} not found`);
     }
 
-    const groqKey = process.env.GROQ_API_KEY;
-    const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
-
-    if (groqKey && groqKey.trim().length > 10) {
+    if (GroqClient.isConfigured()) {
       try {
-        const aiProposal = await this.callGroqStructured(mandate, query, groqKey, model);
+        const aiProposal = await this.callGroqStructured(mandate, query);
+        await store.saveProposal(aiProposal.proposal);
         return aiProposal;
       } catch (err) {
         console.warn("Groq API call failed, falling back to deterministic search:", err);
@@ -49,7 +49,9 @@ export class ShoppingAgentService {
     }
 
     // Deterministic catalogue-search fallback (Scenario 9)
-    return this.deterministicCatalogueFallback(mandate, query);
+    const fallback = this.deterministicCatalogueFallback(mandate, query);
+    await store.saveProposal(fallback.proposal);
+    return fallback;
   }
 
   /**
@@ -68,6 +70,10 @@ export class ShoppingAgentService {
 
     const merchant = store.getMerchantById(candidate.merchantId);
     const merchantName = merchant ? merchant.name : candidate.merchantName;
+    const configuredDemoPayee = process.env.PAYPAL_DEMO_PAYEE_EMAIL?.trim();
+    const resolvedPayee = (merchant?.isDemoSeller && configuredDemoPayee)
+      ? configuredDemoPayee
+      : (merchant?.paypalPayeeEmail || configuredDemoPayee || "");
 
     // Evaluate constraints against candidate
     const satisfied: string[] = [];
@@ -109,6 +115,7 @@ export class ShoppingAgentService {
       productName: candidate.name,
       merchantId: candidate.merchantId,
       merchantName,
+      paypalPayeeEmail: resolvedPayee,
       proposedAmount: candidate.price,
       currency: candidate.currency,
       quantity: 1,
@@ -121,7 +128,7 @@ export class ShoppingAgentService {
       createdAt: new Date().toISOString(),
     };
 
-    store.saveProposal(proposal);
+    store.saveProposal(proposal).catch(() => {});
 
     return {
       proposal,
@@ -133,9 +140,7 @@ export class ShoppingAgentService {
 
   private static async callGroqStructured(
     mandate: ReturnType<typeof store.getMandateById> & object,
-    query: string,
-    apiKey: string,
-    model: string
+    query: string
   ): Promise<AgentRecommendationResult> {
     const catalogueSnippet = store.listProducts().map((p) => ({
       id: p.id,
@@ -174,29 +179,15 @@ Customer Mandate:
 Catalogue:
 ${JSON.stringify(catalogueSnippet, null, 2)}`;
 
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.2,
-      }),
+    const rawContent = await GroqClient.createChatCompletion({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      responseFormat: "json_object",
+      temperature: 0.2,
     });
 
-    if (!response.ok) {
-      throw new Error(`Groq HTTP ${response.status}: ${await response.text()}`);
-    }
-
-    const json = (await response.json()) as { choices: { message: { content: string } }[] };
-    const rawContent = json.choices?.[0]?.message?.content;
     const parsed = ProposalGenerationSchema.parse(JSON.parse(rawContent));
 
     // Security boundary: Overwrite model-generated price with actual catalogue price
@@ -204,6 +195,12 @@ ${JSON.stringify(catalogueSnippet, null, 2)}`;
     if (!trustedProduct) {
       throw new Error(`Model selected nonexistent product: ${parsed.selectedProductId}`);
     }
+
+    const merchant = store.getMerchantById(trustedProduct.merchantId);
+    const configuredDemoPayee = process.env.PAYPAL_DEMO_PAYEE_EMAIL?.trim();
+    const resolvedPayee = (merchant?.isDemoSeller && configuredDemoPayee)
+      ? configuredDemoPayee
+      : (merchant?.paypalPayeeEmail || configuredDemoPayee || "");
 
     const proposalId = `prop_${Date.now()}`;
     const fingerprint = computeProposalFingerprint({
@@ -222,6 +219,7 @@ ${JSON.stringify(catalogueSnippet, null, 2)}`;
       productName: trustedProduct.name,
       merchantId: trustedProduct.merchantId,
       merchantName: trustedProduct.merchantName,
+      paypalPayeeEmail: resolvedPayee,
       proposedAmount: trustedProduct.price,
       currency: trustedProduct.currency,
       quantity: 1,
@@ -234,8 +232,9 @@ ${JSON.stringify(catalogueSnippet, null, 2)}`;
       createdAt: new Date().toISOString(),
     };
 
-    store.saveProposal(proposal);
+    store.saveProposal(proposal).catch(() => {});
 
+    const model = GroqClient.getModel();
     return {
       proposal,
       isAiGenerated: true,
@@ -244,3 +243,4 @@ ${JSON.stringify(catalogueSnippet, null, 2)}`;
     };
   }
 }
+

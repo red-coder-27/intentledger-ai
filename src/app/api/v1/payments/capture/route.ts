@@ -12,6 +12,7 @@ const CaptureOrderSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    await store.ensureInitialized();
     const body = await req.json();
     const { paymentId, paypalOrderId } = CaptureOrderSchema.parse(body);
 
@@ -61,11 +62,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Execute capture via PayPal REST API
-    const captureResult = await PayPalClient.captureOrder(
-      paypalOrderId,
-      `capture_${payment.id}_${Date.now()}`
-    );
+    // Inspect current order state in PayPal Sandbox
+    const orderDetails = await PayPalClient.getOrderDetails(paypalOrderId);
+
+    let captureResult: { id: string; amount: { value: string; currency_code: string } };
+
+    if (orderDetails.status === "COMPLETED") {
+      // Order is already captured; reconcile existing capture without capturing again
+      const existingCapture = orderDetails.purchase_units?.[0]?.payments?.captures?.[0];
+      if (!existingCapture) {
+        throw new Error(`Order ${paypalOrderId} is COMPLETED but no capture record found in PayPal`);
+      }
+      captureResult = existingCapture;
+    } else {
+      // Execute capture via PayPal REST API
+      captureResult = await PayPalClient.captureOrder(
+        paypalOrderId,
+        `capture_${payment.id}_${Date.now()}`
+      );
+    }
 
     const capturedAmount = captureResult.amount.value;
     const capturedCurrency = captureResult.amount.currency_code;
@@ -77,19 +92,19 @@ export async function POST(req: NextRequest) {
     const reconciliationStatus = isReconciled ? "RECONCILED" : "EXCEPTION";
 
     // Mark approval as USED (single-use enforcement)
-    store.markApprovalUsed(approval.id);
+    await store.markApprovalUsed(approval.id);
 
-    // Update internal payment status
-    store.updatePaymentStatus(
+    // Update internal payment status in Neon PostgreSQL
+    await store.updatePaymentStatus(
       payment.id,
       reconciliationStatus === "RECONCILED" ? "CAPTURED" : "RECONCILIATION_EXCEPTION",
       captureResult.id,
       reconciliationStatus
     );
 
-    // Generate Cryptographic Transaction Passport
+    // Generate Cryptographic Transaction Passport & persist to Neon PostgreSQL
     const transactionId = `tx_${Date.now()}`;
-    const passport = TransactionPassportService.createPassport({
+    const passport = await TransactionPassportService.createAndPersistPassport({
       transactionId,
       mandate,
       proposal,
@@ -121,3 +136,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

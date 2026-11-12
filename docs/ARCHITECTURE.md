@@ -116,3 +116,4 @@ flowchart TD
 2. **No Secret Ingestion in Client Bundles:** All PayPal and AI credentials reside strictly in server environments.
 3. **Idempotency by Design:** All payment creation and capture endpoints use unique idempotency keys to prevent double-charging.
 4. **Honest Provenance:** Clear visual and structural distinction between Live Sandbox responses and isolated test fixtures.
+

@@ -13,3 +13,6 @@
 | **SC-07** | Cryptographic Ledger Tampering | Mutation of an audit event payload in hash chain | Passport verifier recalculates $H_n \ne \text{SHA256}(...)$ and fails with `INVALID`. | `tests/unit/hash-chain-verification.test.ts` |
 | **SC-08** | Webhook Deduplication / Idempotency | Duplicate transmission of identical PayPal capture event | Deduplicated; single event persisted, zero duplicate financial state modification. | `tests/unit/webhook-idempotency.test.ts` |
 | **SC-09** | AI Provider Fallback Resilience | Groq API network outage / 500 error | Deterministic catalogue search fallback activated; financial authorization unaffected. | `tests/unit/agent-fallback.test.ts` |
+| **SC-10** | Neon PostgreSQL Persistence | Connection, CRUD, Restart & Foreign Key Integrity | Live queries to Neon PostgreSQL succeed, writes persist across store re-instantiations. | `tests/integration/neon-persistence.test.ts` |
+
+

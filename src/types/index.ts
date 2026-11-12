@@ -54,6 +54,7 @@ export interface PurchaseProposalData {
   productName: string;
   merchantId: string;
   merchantName: string;
+  paypalPayeeEmail?: string;
   proposedAmount: string;
   currency: string;
   quantity: number;
@@ -192,3 +193,4 @@ export interface TransactionEventData {
   signature?: string;
   timestamp: string;
 }
+

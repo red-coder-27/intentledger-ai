@@ -38,3 +38,4 @@ export function verifyProposalFingerprint(
   const actualFingerprint = computeProposalFingerprint(input);
   return expectedFingerprint.toLowerCase() === actualFingerprint.toLowerCase();
 }
+

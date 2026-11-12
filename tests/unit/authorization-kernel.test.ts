@@ -173,3 +173,4 @@ describe("Deterministic Authorization Kernel — Policy Enforcement Tests", () =
     expect(result.reasonCodes).toContain("APPROVAL_ALREADY_USED");
   });
 });
+

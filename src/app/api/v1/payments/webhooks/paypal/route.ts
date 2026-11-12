@@ -4,6 +4,7 @@ import { PayPalClient } from "@/lib/paypal/client";
 
 export async function POST(req: NextRequest) {
   try {
+    await store.ensureInitialized();
     const rawBody = await req.text();
     const event = JSON.parse(rawBody);
 
@@ -30,17 +31,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Event Deduplication & Idempotency
+    // 2. Database-Level Event Deduplication & Idempotency
     const eventId = event.id || transmissionId;
-    if (store.hasProcessedWebhook(eventId)) {
+    const { isDuplicate } = await store.recordWebhookIfNew(
+      eventId,
+      event.event_type || "UNKNOWN",
+      transmissionId,
+      event
+    );
+
+    if (isDuplicate) {
       return NextResponse.json({
         success: true,
-        message: `Webhook ${eventId} already processed (idempotent no-op).`,
+        message: `Webhook ${eventId} already processed (database-verified idempotent no-op).`,
       });
     }
-
-    // Mark as processed immediately
-    store.markWebhookProcessed(eventId);
 
     // 3. Process Event Types
     const eventType = event.event_type;
@@ -51,7 +56,7 @@ export async function POST(req: NextRequest) {
       if (orderId) {
         const payment = store.getPaymentByOrderId(orderId);
         if (payment && payment.status !== "CAPTURED") {
-          store.updatePaymentStatus(payment.id, "CAPTURED", resource.id, "RECONCILED");
+          await store.updatePaymentStatus(payment.id, "CAPTURED", resource.id, "RECONCILED");
         }
       }
     } else if (eventType === "PAYMENT.CAPTURE.DENIED") {
@@ -59,7 +64,7 @@ export async function POST(req: NextRequest) {
       if (orderId) {
         const payment = store.getPaymentByOrderId(orderId);
         if (payment) {
-          store.updatePaymentStatus(payment.id, "DENIED");
+          await store.updatePaymentStatus(payment.id, "DENIED");
         }
       }
     }
@@ -77,3 +82,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

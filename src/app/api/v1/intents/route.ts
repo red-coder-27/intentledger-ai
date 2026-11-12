@@ -19,12 +19,14 @@ const CreateMandateSchema = z.object({
 });
 
 export async function GET() {
+  await store.ensureInitialized();
   const mandates = store.listMandates();
   return NextResponse.json({ success: true, count: mandates.length, data: mandates });
 }
 
 export async function POST(req: NextRequest) {
   try {
+    await store.ensureInitialized();
     const body = await req.json();
     const parsed = CreateMandateSchema.parse(body);
 
@@ -62,7 +64,7 @@ export async function POST(req: NextRequest) {
       fingerprint,
     };
 
-    store.saveMandate(mandate);
+    await store.saveMandate(mandate);
 
     return NextResponse.json(
       {
@@ -79,3 +81,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

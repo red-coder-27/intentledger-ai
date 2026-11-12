@@ -13,6 +13,7 @@ const CreateOrderSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    await store.ensureInitialized();
     const body = await req.json();
     const { approvalId } = CreateOrderSchema.parse(body);
 
@@ -49,9 +50,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Payee identity resolution: Map demonstration seller to configured PayPal Sandbox payee
-    const merchant = store.getMerchantById(proposal.merchantId);
-    const payeeEmail = merchant?.paypalPayeeEmail || process.env.PAYPAL_DEMO_PAYEE_EMAIL || "merchant-demo@intentledger.ai";
+    // Payee identity resolution: Enforce configured PayPal Sandbox payee priority
+    const payeeEmail = store.resolvePayeeEmail(proposal.merchantId);
+
+    if (!payeeEmail) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unconfigured PayPal Sandbox Payee: PAYPAL_DEMO_PAYEE_EMAIL is missing from environment or unassigned to merchant.",
+        },
+        { status: 500 }
+      );
+    }
 
     const origin = req.nextUrl.origin || "http://localhost:3000";
     const returnUrl = `${origin}/app/transactions?status=approved`;
@@ -86,7 +96,7 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    store.savePayment(paymentRecord);
+    await store.savePayment(paymentRecord);
 
     return NextResponse.json({
       success: true,
@@ -107,3 +117,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

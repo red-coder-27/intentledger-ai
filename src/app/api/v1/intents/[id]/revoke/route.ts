@@ -5,8 +5,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await store.ensureInitialized();
   const { id } = await params;
-  const revoked = store.revokeMandate(id);
+  const revoked = await store.revokeMandate(id);
 
   if (!revoked) {
     return NextResponse.json(
@@ -21,3 +22,4 @@ export async function POST(
     message: `Mandate ${id} has been revoked. It can no longer authorize purchases.`,
   });
 }
+

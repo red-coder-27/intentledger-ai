@@ -24,7 +24,7 @@ describe("Transaction Passport & Cryptographic Ledger Tests", () => {
     proposalId: proposal.id,
     paypalOrderId: "5O9876543210SANDBOX",
     paypalCaptureId: "2XX123456789CAPTURE",
-    paypalPayeeEmail: "merchant-demo@intentledger.ai",
+    paypalPayeeEmail: "sb-25i8a53852340@business.example.com",
     merchantName: "Demo Electronics",
     productName: "AuraSound Pro ANC Wireless Headphones",
     amount: "85.00",
@@ -116,3 +116,4 @@ describe("Transaction Passport & Cryptographic Ledger Tests", () => {
     expect(isDuplicate).toBe(true);
   });
 });
+

@@ -170,7 +170,7 @@ export default function AnalyticsIntelligencePage() {
               <div className="p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded flex items-center justify-between">
                 <div>
                   <span className="font-bold text-[#102A43] block">Demo Electronics</span>
-                  <span className="font-mono text-[10px] text-[#64748B]">Payee: merchant-demo@intentledger.ai</span>
+                  <span className="font-mono text-[10px] text-[#64748B]">Payee: sb-25i8a53852340@business.example.com</span>
                 </div>
                 <div className="text-right">
                   <span className="font-mono font-bold text-[#16835D] block">$85.00 USD</span>
@@ -245,3 +245,4 @@ export default function AnalyticsIntelligencePage() {
     </div>
   );
 }
+
