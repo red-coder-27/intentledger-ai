@@ -81,7 +81,7 @@ export default function LandingPage() {
             The Fundamental Proposition
           </span>
           <p className="text-base font-bold text-[#102A43]">
-            "An AI agent can recommend a purchase, but it cannot spend beyond the customer's intent."
+            &ldquo;An AI agent can recommend a purchase, but it cannot spend beyond the customer&apos;s intent.&rdquo;
           </p>
           <p className="text-xs text-[#64748B] max-w-2xl mx-auto">
             Deterministic policies independently enforce budget limits, authorized merchants, single-use approval fingerprints, and financial reconciliation against PayPal Developer Sandbox.

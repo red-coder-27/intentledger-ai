@@ -126,7 +126,7 @@ export default function IntentsPage() {
                       </span>
                     </div>
                     <p className="text-xs text-[#334155] mt-1 italic">
-                      "{m.naturalInstruction}"
+                      &ldquo;{m.naturalInstruction}&rdquo;
                     </p>
                   </div>
 

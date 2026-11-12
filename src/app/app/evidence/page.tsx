@@ -201,7 +201,7 @@ export default function EvidenceCenterPage() {
               </p>
 
               <div className="p-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded text-xs text-[#334155] leading-relaxed italic">
-                "{assessment.executiveSummary}"
+                &ldquo;{assessment.executiveSummary}&rdquo;
               </div>
 
               <div className="p-2 bg-[#F0F3F7] rounded text-[11px] text-[#64748B] flex items-center gap-1.5">

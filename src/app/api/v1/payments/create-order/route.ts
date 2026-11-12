@@ -3,12 +3,11 @@ import { z } from "zod";
 import { store } from "@/server/repositories/store";
 import { AuthorizationKernel } from "@/server/services/authorization/kernel";
 import { PayPalClient } from "@/lib/paypal/client";
+import { validateAndResolveRedirectUrls } from "@/lib/paypal/redirects";
 import { PaymentRecord } from "@/types";
 
 const CreateOrderSchema = z.object({
   approvalId: z.string().min(1),
-  returnUrl: z.string().optional(),
-  cancelUrl: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -63,9 +62,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const origin = req.nextUrl.origin || "http://localhost:3000";
-    const returnUrl = `${origin}/app/transactions?status=approved`;
-    const cancelUrl = `${origin}/app/authorization?status=cancelled`;
+    // Security: Derive return and cancel URLs strictly from validated server-side APP_BASE_URL.
+    // Untrusted client inputs and forwarded request headers are strictly rejected.
+    const { returnUrl, cancelUrl } = validateAndResolveRedirectUrls();
 
     // Call PayPal Orders API v2
     const paypalOrder = await PayPalClient.createOrder({

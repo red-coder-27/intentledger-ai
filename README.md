@@ -576,6 +576,11 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 All sensitive credentials remain strictly server-side and are never prefixed with `NEXT_PUBLIC_`.
 
 ```env
+# Application Canonical Base URL (Required for Server-Side PayPal Redirects)
+# In development: http://localhost:3000
+# In production on Vercel: https://your-project.vercel.app (HTTPS enforced outside localhost)
+APP_BASE_URL=http://localhost:3000
+
 # PayPal Developer Sandbox Credentials
 # Obtain from https://developer.paypal.com/dashboard/applications/sandbox
 PAYPAL_CLIENT_ID=your_sandbox_client_id_here
@@ -590,6 +595,7 @@ PAYPAL_DEMO_MERCHANT_NAME="Demo Electronics"
 # Neon Serverless PostgreSQL Database Connection
 # Format: postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require
 DATABASE_URL="postgresql://user:password@ep-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+DIRECT_URL="postgresql://user:password@ep-direct.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
 # Groq Cloud AI Engine
 # Obtain from https://console.groq.com

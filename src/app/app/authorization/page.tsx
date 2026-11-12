@@ -253,7 +253,7 @@ function AuthorizationContent() {
                 <div className="flex justify-between border-b border-[#E2E8F0] pb-1.5 font-mono">
                   <span className="text-[#64748B]">Original Customer Instruction:</span>
                   <span className="text-[#102A43] font-sans font-medium text-right max-w-xs">
-                    "{mandate?.naturalInstruction || "Find wireless headphones under $100..."}"
+                    &ldquo;{mandate?.naturalInstruction || "Find wireless headphones under $100..."}&rdquo;
                   </span>
                 </div>
                 <div className="flex justify-between border-b border-[#E2E8F0] pb-1.5 font-mono">
@@ -342,7 +342,7 @@ function AuthorizationContent() {
               </p>
 
               <div className="p-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded text-[11px] text-[#334155]">
-                "I authorize <strong>{selectedProposal.productName}</strong> for exactly <strong>${selectedProposal.proposedAmount} USD</strong> under mandate {selectedProposal.mandateId}."
+                &ldquo;I authorize <strong>{selectedProposal.productName}</strong> for exactly <strong>${selectedProposal.proposedAmount} USD</strong> under mandate {selectedProposal.mandateId}.&rdquo;
               </div>
 
               {!selectedProposal.paypalPayeeEmail && (

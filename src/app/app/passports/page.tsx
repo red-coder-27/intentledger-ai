@@ -95,7 +95,7 @@ export default function PassportsListPage() {
                     {p.summary.productName} • {p.summary.merchantName}
                   </h2>
                   <p className="text-[11px] text-[#64748B] italic mt-0.5">
-                    "{p.summary.customerInstruction}"
+                    &ldquo;{p.summary.customerInstruction}&rdquo;
                   </p>
                 </div>
 
